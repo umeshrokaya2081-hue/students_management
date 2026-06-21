@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_db, engine, Base
 from models import Student as DBStudent
@@ -7,15 +8,28 @@ from schemas import StudentCreate
 
 app = FastAPI()
 
-# create tables
-Base.metadata.create_all(bind=engine)
+# CORS (React frontend)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-#Home
+# Create tables on startup
+@app.on_event("startup")
+def startup():
+    Base.metadata.create_all(bind=engine)
+
+
+# Home route
 @app.get("/")
 def home():
     return {"message": "Student Management API"}
 
-#CREATE
+
+# CREATE student
 @app.post("/students")
 def create_student(student: StudentCreate, db: Session = Depends(get_db)):
 
@@ -29,24 +43,46 @@ def create_student(student: StudentCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_student)
 
-    return {"message": "Student added successfully"}
+    return {
+        "message": "Student added successfully",
+        "student": {
+            "id": new_student.id,
+            "name": new_student.name,
+            "age": new_student.age,
+            "grade": new_student.grade
+        }
+    }
 
-#READ ALL
+
+# READ all students
 @app.get("/students")
 def get_students(db: Session = Depends(get_db)):
 
     students = db.query(DBStudent).all()
 
-    return students
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "age": s.age,
+            "grade": s.grade
+        }
+        for s in students
+    ]
 
-#UPDATE
+
+# UPDATE student
 @app.put("/students/{student_id}")
-def update_student(student_id: int, updated_student: StudentCreate, db: Session = Depends(get_db)):
+def update_student(
+    student_id: int,
+    updated_student: StudentCreate,
+    db: Session = Depends(get_db)
+):
 
     student = db.query(DBStudent).filter(DBStudent.id == student_id).first()
 
     if not student:
-        return {"error": "Student not found"}
+        raise HTTPException(status_code=404, detail="Student not found")
 
     student.name = updated_student.name
     student.age = updated_student.age
@@ -57,17 +93,23 @@ def update_student(student_id: int, updated_student: StudentCreate, db: Session 
 
     return {
         "message": "Student updated successfully",
-        "student": student
+        "student": {
+            "id": student.id,
+            "name": student.name,
+            "age": student.age,
+            "grade": student.grade
+        }
     }
 
-#DELETE
+
+# DELETE student
 @app.delete("/students/{student_id}")
 def delete_student(student_id: int, db: Session = Depends(get_db)):
 
     student = db.query(DBStudent).filter(DBStudent.id == student_id).first()
 
     if not student:
-        return {"error": "Student not found"}
+        raise HTTPException(status_code=404, detail="Student not found")
 
     db.delete(student)
     db.commit()
